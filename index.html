@@ -12,7 +12,7 @@
   <!-- PapaParse -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 </head>
-<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-4 sm:p-6">
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex items-center justify-center min-h-screen p-4 sm:p-6">
   <div class="max-w-5xl mx-auto bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
     <div class="flex justify-between items-center mb-4">
       <h1 class="text-2xl font-bold">Holdings Tracker</h1>
@@ -24,11 +24,11 @@
       </div>
     </div>
     <div id="dropZone" class="border-2 border-dashed border-gray-400 dark:border-gray-600 p-6 text-center rounded mb-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
-      Drag & drop CSV here or click to browse
+      Drag &amp; drop CSV here or click to browse
       <input id="csvFile" type="file" accept=".csv" class="hidden" />
     </div>
     <div class="overflow-x-auto">
-      <table id="holdingsTable" class="min-w-[800px] w-full table-auto hidden">
+      <table id="holdingsTable" class="min-w-[900px] w-full table-auto hidden">
         <thead>
           <tr class="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-200 uppercase text-sm">
             <th class="py-3 px-6 text-left">Instrument</th>
@@ -36,8 +36,8 @@
             <th class="py-3 px-6 text-right">Avg Cost</th>
             <th class="py-3 px-6 text-right">LTP</th>
             <th class="py-3 px-6 text-right">Invested</th>
-            <th class="py-3 px-6 text-right">Cur.Value</th>
-            <th class="py-3 px-6 text-right">P&amp;L</th>
+            <th class="py-3 px-6 text-right">Cur. Value</th>
+            <th class="py-3 px-6 text-right">P&amp;L (ROI %)</th>
             <th class="py-3 px-6 text-center">Actions</th>
           </tr>
         </thead>
@@ -129,12 +129,21 @@
       const tbody=document.querySelector('#holdingsTable tbody');tbody.innerHTML='';
       data.forEach(r=>{
         if(visibleInstruments.length && !visibleInstruments.includes(r.instrument))return;
+        const roi = r.invested ? (r.pl / r.invested * 100) : 0;
         const tr=document.createElement('tr');tr.className='border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700';
-        tr.innerHTML=`<td class="py-3 px-6">${r.instrument}</td><td class="py-3 px-6 text-right">${r.qty.toLocaleString()}</td>`+
-                     `<td class="py-3 px-6 text-right">${r.avgCost.toFixed(2)}</td><td class="py-3 px-6 text-right">${r.ltp.toFixed(2)}</td>`+
-                     `<td class="py-3 px-6 text-right">${r.invested.toFixed(2)}</td><td class="py-3 px-6 text-right">${r.current.toFixed(2)}</td>`+
-                     `<td class="py-3 px-6 text-right ${r.pl<0?'text-red-500':'text-green-500'}">${r.pl.toFixed(2)}</td>`+
-                     `<td class="py-3 px-6 text-center whitespace-nowrap"><button class="delete-btn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600">Delete</button></td>`;
+        tr.innerHTML=`
+          <td class="py-3 px-6">${r.instrument}</td>
+          <td class="py-3 px-6 text-right">${r.qty.toLocaleString()}</td>
+          <td class="py-3 px-6 text-right">${r.avgCost.toFixed(2)}</td>
+          <td class="py-3 px-6 text-right">${r.ltp.toFixed(2)}</td>
+          <td class="py-3 px-6 text-right">${r.invested.toFixed(2)}</td>
+          <td class="py-3 px-6 text-right">${r.current.toFixed(2)}</td>
+          <td class="py-3 px-6 text-right ${r.pl<0?'text-red-500':'text-green-500'}">
+            ${r.pl.toFixed(2)} <span class="text-xs text-gray-500 dark:text-gray-400">(${roi.toFixed(2)}%)</span>
+          </td>
+          <td class="py-3 px-6 text-center whitespace-nowrap">
+            <button class="delete-btn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600">Delete</button>
+          </td>`;
         tbody.appendChild(tr);
         tr.querySelector('.delete-btn').addEventListener('click',()=>{tr.remove();updateTotals();});
       });
@@ -142,13 +151,43 @@
     }
 
     // Totals & sorting
-    function updateTotals(){let ti=0,tc=0,tpl=0;document.querySelectorAll('#holdingsTable tbody tr').forEach(tr=>{if(tr.style.display==='none')return;ti+=parseFloat(tr.children[4].textContent.replace(/,/g,''))||0;tc+=parseFloat(tr.children[5].textContent.replace(/,/g,''))||0;tpl+=parseFloat(tr.children[6].textContent.replace(/,/g,''))||0;});
+    function updateTotals(){
+      let ti=0,tc=0,tpl=0;
+      document.querySelectorAll('#holdingsTable tbody tr').forEach(tr=>{
+        if(tr.style.display==='none')return;
+        ti+=parseFloat(tr.children[4].textContent.replace(/,/g,''))||0;
+        tc+=parseFloat(tr.children[5].textContent.replace(/,/g,''))||0;
+        tpl+=parseFloat(tr.children[6].textContent.replace(/,/g,''))||0;
+      });
+      const totalRoi = ti ? (tpl/ti*100) : 0;
       document.getElementById('totalInvested').textContent=ti.toFixed(2);
       document.getElementById('totalCurrent').textContent=tc.toFixed(2);
-      const el=document.getElementById('totalPL');el.textContent=tpl.toFixed(2);el.className=tpl<0?'py-3 px-6 text-right text-red-500 font-bold':'py-3 px-6 text-right text-green-500 font-bold';}
+      const el=document.getElementById('totalPL');
+      el.innerHTML = tpl.toFixed(2) +
+        ` <span class="text-xs text-gray-500 dark:text-gray-400">(${totalRoi.toFixed(2)}%)</span>`;
+      el.className = tpl<0 ? 'py-3 px-6 text-right text-red-500 font-bold' : 'py-3 px-6 text-right text-green-500 font-bold';
+    }
     let sortConfig={index:null,asc:true};
-    function attachSorting(){document.querySelectorAll('#holdingsTable thead th').forEach((th,i)=>{if(i>6)return;th.style.cursor='pointer';th.onclick=()=>sortBy(i);});}
-    function sortBy(col){const tbody=document.querySelector('#holdingsTable tbody');let rows=Array.from(tbody.querySelectorAll('tr'));const asc=(sortConfig.index===col?!sortConfig.asc:true);sortConfig={index:col,asc};rows.sort((a,b)=>{const aT=a.children[col].textContent.replace(/,/g,''),bT=b.children[col].textContent.replace(/,/g,'');const diff=col===0?aT.localeCompare(bT):parseFloat(aT)-parseFloat(bT);return asc?diff:-diff;});rows.forEach(r=>tbody.appendChild(r));}
+    function attachSorting(){
+      document.querySelectorAll('#holdingsTable thead th').forEach((th,i)=>{
+        if(i>6)return;
+        th.style.cursor='pointer';
+        th.onclick=()=>sortBy(i);
+      });
+    }
+    function sortBy(col){
+      const tbody=document.querySelector('#holdingsTable tbody');
+      let rows=Array.from(tbody.querySelectorAll('tr'));
+      const asc=(sortConfig.index===col?!sortConfig.asc:true);
+      sortConfig={index:col,asc};
+      rows.sort((a,b)=>{
+        const aT=a.children[col].textContent.replace(/[^0-9.-]/g,''),
+              bT=b.children[col].textContent.replace(/[^0-9.-]/g,'');
+        let diff = col===0 ? aT.localeCompare(bT) : parseFloat(aT)-parseFloat(bT);
+        return asc?diff:-diff;
+      });
+      rows.forEach(r=>tbody.appendChild(r));
+    }
   </script>
 </body>
 </html>
