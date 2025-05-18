@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Holdings Tracker</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' };</script>
+  <!-- PapaParse -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex items-center justify-center min-h-screen p-4">
+  <div id="trackerCard" class="w-full max-w-md bg-white dark:bg-gray-800 p-6 rounded-lg shadow transition-all duration-300">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Holdings Tracker</h1>
+      <div class="flex items-center space-x-2">
+        <button id="settingsBtn" class="bg-yellow-500 text-white px-4 py-1 rounded hover:bg-yellow-600">Settings</button>
+        <button id="themeToggle" class="bg-gray-300 dark:bg-gray-700 p-2 rounded">
+          <span id="themeIcon">🌙</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="dropZone" class="border-2 border-dashed border-gray-400 dark:border-gray-600 p-6 text-center rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+      Drag & drop CSV here or click to browse
+      <input id="csvFile" type="file" accept=".csv" class="hidden" />
+    </div>
+
+    <div class="overflow-x-auto mt-6">
+      <table id="holdingsTable" class="w-full table-auto hidden">
+        <thead>
+          <tr class="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-200 uppercase text-sm">
+            <th data-col="0" class="py-2 px-4 text-left cursor-pointer">Instrument</th>
+            <th data-col="1" class="py-2 px-4 text-right cursor-pointer">Qty.</th>
+            <th data-col="2" class="py-2 px-4 text-right cursor-pointer">Avg Cost</th>
+            <th data-col="3" class="py-2 px-4 text-right cursor-pointer">LTP</th>
+            <th data-col="4" class="py-2 px-4 text-right cursor-pointer">Invested</th>
+            <th data-col="5" class="py-2 px-4 text-right cursor-pointer">Cur. Value</th>
+            <th data-col="6" class="py-2 px-4 text-right cursor-pointer">P&amp;L (ROI%)</th>
+            <th class="py-2 px-4 text-center">Action</th>
+          </tr>
+        </thead>
+        <tbody class="text-gray-700 dark:text-gray-300 text-sm"></tbody>
+        <tfoot>
+          <tr class="bg-gray-100 dark:bg-gray-700 font-bold">
+            <td class="py-2 px-4">Totals</td><td></td><td></td><td></td>
+            <td class="py-2 px-4 text-right" id="totalInvested"></td>
+            <td class="py-2 px-4 text-right" id="totalCurrent"></td>
+            <td class="py-2 px-4 text-right" id="totalPL"></td><td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div id="charts" class="hidden mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <h2 class="text-lg font-semibold mb-2">Invested Amount by Instrument</h2>
+        <canvas id="investChart"></canvas>
+      </div>
+      <div>
+        <h2 class="text-lg font-semibold mb-2">P&amp;L Distribution</h2>
+        <canvas id="plChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg w-11/12 sm:w-2/3 lg:w-1/3">
+      <h2 class="text-xl font-bold mb-4">Select Instruments to Display</h2>
+      <div id="instrumentList" class="max-h-48 overflow-y-auto mb-4 space-y-2"></div>
+      <div class="flex justify-end space-x-4">
+        <button id="cancelSettings" class="px-4 py-2 rounded border">Cancel</button>
+        <button id="saveSettings" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">Load Tracker</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Globals
+    let allData = [], investChart = null, plChart = null;
+    let visibleInstruments = [];
+
+    // Theme
+    ;(function(){
+      const s = localStorage.getItem('theme'), p = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light';
+      document.documentElement.classList.toggle('dark', (s||p)==='dark');
+    })();
+    const themeToggle = document.getElementById('themeToggle'), themeIcon = document.getElementById('themeIcon');
+    function updateIcon(){ themeIcon.textContent = document.documentElement.classList.contains('dark') ? '☀️':'🌙'; }
+    themeToggle.addEventListener('click', () => {
+      const next = document.documentElement.classList.toggle('dark')?'light':'dark';
+      localStorage.setItem('theme', next);
+      updateIcon();
+    });
+    updateIcon();
+
+    // Elements
+    const dropZone = document.getElementById('dropZone'), fileInput = document.getElementById('csvFile');
+    const settingsBtn = document.getElementById('settingsBtn'), settingsModal = document.getElementById('settingsModal');
+    const instrumentList = document.getElementById('instrumentList');
+    const cancelSettings = document.getElementById('cancelSettings'), saveSettings = document.getElementById('saveSettings');
+    // Allow manual open of settings modal
+    settingsBtn.addEventListener('click', showSettings);
+
+    // Drag & drop
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', e => e.preventDefault());
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault(); fileInput.files = e.dataTransfer.files; loadHoldings();
+    });
+    fileInput.addEventListener('change', loadHoldings);
+
+    // Load CSV
+    function loadHoldings(){
+      if(!fileInput.files.length) return;
+      Papa.parse(fileInput.files[0], { header:true, skipEmptyLines:true,
+        complete: res => {
+          allData = res.data.map(r => {
+            const qty = parseFloat(r['Qty.'])||0, avg = parseFloat(r['Avg. cost'])||0, ltp = parseFloat(r['LTP'])||0;
+            return { instrument: r['Instrument'], qty, avgCost: avg, ltp, invested: qty*avg, current: qty*ltp, pl: qty*ltp-qty*avg };
+          });
+          visibleInstruments = [...new Set(allData.map(d => d.instrument))];
+          showSettings();
+        }
+      });
+    }
+
+    // Settings modal
+    function showSettings(){
+      instrumentList.innerHTML = '';
+      visibleInstruments.forEach(instr => {
+        const id = 'chk_' + instr;
+        instrumentList.insertAdjacentHTML('beforeend',
+          `<label class="flex items-center space-x-2">
+             <input type="checkbox" id="${id}" value="${instr}" checked class="border-gray-300 dark:border-gray-600" />
+             <span>${instr}</span>
+           </label>`
+        );
+      });
+      settingsModal.classList.remove('hidden');
+    }
+
+    cancelSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
+    saveSettings.addEventListener('click', () => {
+      visibleInstruments = Array.from(instrumentList.querySelectorAll('input:checked')).map(i => i.value);
+      localStorage.setItem('visibleInstruments', JSON.stringify(visibleInstruments));
+      settingsModal.classList.add('hidden');
+      // expand card
+      document.getElementById('trackerCard').classList.replace('max-w-md','max-w-5xl');
+      renderTable(); renderCharts();
+    });
+
+    // Render table
+    function renderTable(){
+      const tbl = document.getElementById('holdingsTable'), tbody = tbl.querySelector('tbody');
+      tbody.innerHTML = '';
+      let ti=0, tc=0, tpl=0;
+      allData.filter(r => visibleInstruments.includes(r.instrument)).forEach(r => {
+        const roi = r.invested ? (r.pl/r.invested*100) : 0;
+        ti += r.invested; tc += r.current; tpl += r.pl;
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700';
+        tr.innerHTML = `
+          <td class="py-2 px-4">${r.instrument}</td>
+          <td class="py-2 px-4 text-right">${r.qty.toLocaleString()}</td>
+          <td class="py-2 px-4 text-right">${r.avgCost.toFixed(2)}</td>
+          <td class="py-2 px-4 text-right">${r.ltp.toFixed(2)}</td>
+          <td class="py-2 px-4 text-right">${r.invested.toFixed(2)}</td>
+          <td class="py-2 px-4 text-right">${r.current.toFixed(2)}</td>
+          <td class="py-2 px-4 text-right ${r.pl<0?'text-red-500':'text-green-500'}">
+            ${r.pl.toFixed(2)} <span class="text-xs text-gray-500 dark:text-gray-400">(${roi.toFixed(2)}%)</span>
+          </td>
+          <td class="py-2 px-4 text-center"><button class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600">Delete</button></td>
+        `;
+        tbody.appendChild(tr);
+        tr.querySelector('button').addEventListener('click', ()=>{
+          allData = allData.filter(x=>x.instrument !== r.instrument);
+          visibleInstruments = visibleInstruments.filter(i => i !== r.instrument);
+          renderTable(); renderCharts();
+        });
+      });
+      document.getElementById('totalInvested').textContent = ti.toFixed(2);
+      document.getElementById('totalCurrent').textContent  = tc.toFixed(2);
+      const totalPLCell = document.getElementById('totalPL');
+      const totalROI    = ti ? (tpl/ti*100) : 0;
+      totalPLCell.innerHTML = `${tpl.toFixed(2)} <span class="text-xs text-gray-500 dark:text-gray-400">(${totalROI.toFixed(2)}%)</span>`;
+      totalPLCell.className = tpl<0?'py-3 px-4 text-right text-red-500 font-bold':'py-3 px-4 text-right text-green-500 font-bold';
+      tbl.classList.remove('hidden');
+    }
+
+    // Charts
+    function renderCharts(){
+      if(!visibleInstruments.length) return;
+      document.getElementById('charts').classList.remove('hidden');
+      const filtered = allData.filter(r=>visibleInstruments.includes(r.instrument));
+      const labels     = filtered.map(r=>r.instrument),
+            investData = filtered.map(r=>r.invested),
+            plData     = filtered.map(r=>r.pl);
+      const ctxI = document.getElementById('investChart').getContext('2d'); if(investChart) investChart.destroy();
+      investChart = new Chart(ctxI,{type:'bar',data:{labels,datasets:[{label:'Invested',data:investData}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+      const ctxP = document.getElementById('plChart').getContext('2d'); if(plChart) plChart.destroy();
+      plChart = new Chart(ctxP,{type:'bar',data:{labels,datasets:[{label:'P&L',data:plData}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+    }
+  </script>
+</body>
+</html>
